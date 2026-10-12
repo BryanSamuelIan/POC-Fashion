@@ -10,16 +10,10 @@ import XCTest
 final class POC_FashionUITests: XCTestCase {
 
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
     }
 
     override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
     }
 
     @MainActor
@@ -40,23 +34,33 @@ final class POC_FashionUITests: XCTestCase {
         generateButton.tap()
         
         // 4. Wait for 3 Fits Output to appear
-        XCTAssertTrue(app.staticTexts["Diagnostic Analysis: Body Shape, Torso & Color"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Look 1: Optimal Balance"].waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1.0)
         
-        // 5. Verify Look 1 (Balanced) is displayed
-        XCTAssertTrue(app.staticTexts["Look 1: Optimal Balance"].exists)
+        // 5. Verify Correlation Card exists
+        XCTAssertTrue(app.staticTexts["Body Type, Torso & Color Season Correlation"].waitForExistence(timeout: 5))
         
-        // 6. Switch to Vision Fit
+        // 6. Verify 5 Wardrobe Categories header exists
+        XCTAssertTrue(app.staticTexts["Engineered Wardrobe (5 Categories)"].waitForExistence(timeout: 5))
+        
+        // 7. Switch to Vision Fit
         app.buttons["Vision Fit"].tap()
         XCTAssertTrue(app.staticTexts["Look 2: Vision-Focused"].waitForExistence(timeout: 3))
+        Thread.sleep(forTimeInterval: 0.5)
         
-        // 7. Switch to Preference Fit
+        // 8. Switch to Preference Fit
         app.buttons["Preference Fit"].tap()
         XCTAssertTrue(app.staticTexts["Look 3: Preference-Focused"].waitForExistence(timeout: 3))
+        Thread.sleep(forTimeInterval: 0.5)
+        
+        // 9. Scroll down to verify 3 Rules of Fit
+        app.swipeUp()
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts["The 3 Rules of Fit Validation"].waitForExistence(timeout: 5))
     }
 
     @MainActor
     func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()
         }

@@ -88,8 +88,17 @@ struct MainStylingView: View {
                     generationLoadingOverlay
                 }
             }
+            .alert("Foundation Model Status", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
             .task {
-                if result == nil {
+                // Only generate if model is available, otherwise allow user to tap button and see explicit status
+                if result == nil, AppleFoundationModelService.shared.isFoundationModelAvailable {
                     result = try? await StylingRecommenderService.shared.generateRecommendations(for: profile)
                 }
             }
@@ -184,23 +193,23 @@ struct MainStylingView: View {
     // MARK: - Generation Pipeline Trigger
     private func startGeneration() {
         isGenerating = true
-        generationStepMessage = "Step 1/4: Extracting body silhouette & pose landmarks with Apple Vision..."
+        generationStepMessage = "Step 1/4: Ingesting certified physical profile & 6 body measurements..."
         
         Task {
             // Simulated AI workflow progression for visual feedback
-            try? await Task.sleep(nanoseconds: 600_000_000)
+            try? await Task.sleep(nanoseconds: 500_000_000)
             await MainActor.run {
-                generationStepMessage = "Step 2/4: Grounding in Physical, Visual & Functional Fit with decision weights..."
+                generationStepMessage = "Step 2/4: Applying dynamic decision weights to occasion & vision goals..."
             }
             
-            try? await Task.sleep(nanoseconds: 600_000_000)
+            try? await Task.sleep(nanoseconds: 500_000_000)
             await MainActor.run {
-                generationStepMessage = "Step 3/4: Drafting tailored diagnostic analysis for each distinct look..."
+                generationStepMessage = "Step 3/4: Synthesizing 5 garment types (Top, Outer, Bottom, Shoes, Accessory) with fit rationales..."
             }
             
-            try? await Task.sleep(nanoseconds: 600_000_000)
+            try? await Task.sleep(nanoseconds: 500_000_000)
             await MainActor.run {
-                generationStepMessage = "Step 4/4: Synthesizing visual garments on user's body silhouette..."
+                generationStepMessage = "Step 4/4: Formulating body shape, torso & color season correlation analysis..."
             }
             
             do {

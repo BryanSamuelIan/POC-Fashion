@@ -49,21 +49,48 @@ struct VisualFitEvaluation: Codable, Equatable {
     }
 }
 
-// MARK: - Functional Fit (Theory Grounding)
+// MARK: - Functional Fit (Empirical Framework: ASHRAE 55, Raccuglia et al. 2018, Ashdown 2007)
+enum FunctionalSuitability: String, CaseIterable, Identifiable, Codable {
+    case suitable = "Suitable"
+    case conditional = "Conditional"
+    case unsuitable = "Unsuitable"
+    var id: String { rawValue }
+    
+    var badgeColorHex: String {
+        switch self {
+        case .suitable: return "#2E7D32"   // Green
+        case .conditional: return "#F57C00" // Orange
+        case .unsuitable: return "#D32F2F"  // Red
+        }
+    }
+}
+
 struct FunctionalFitEvaluation: Codable, Equatable {
-    var score: Int                  // 1 - 100
-    var freedomOfMovement: String  // Articulation & stretch
-    var comfortDetail: String      // Breathability & skin feel
-    var activitySuitability: String// Tailored to standing/sitting duration
-    var materialFlexibility: String// Fabric elastic recovery & resilience
+    var suitability: FunctionalSuitability           // FS = f(F, Icl, M, Mob, E)
+    var score: Int                                   // Compliance index (Suitable: 95-98)
+    var insulationLevel: String                      // Icl = f(E, A) (Low / Medium / High insulation)
+    var moistureManagement: String                   // M = f(A, Ta, RH) (Low / Medium / High moisture req)
+    var mobilityRequirement: String                  // Mob = f(A, Physical_fit) (Low / Medium / High mobility)
+    var garmentFitProfile: String                    // F = Physical_fit (Fitted / Semi-fitted / Loose)
+    var textileEngineering: String                   // Mat = f(Icl, M, A) (Breathable / Moisture-managing / etc.)
+    var freedomOfMovement: String                    // Articulation & stretch
+    var comfortDetail: String                        // Breathability & skin feel
+    var activitySuitability: String                  // Tailored to duration & posture
+    var physiologicalComfortExplanation: String      // Empirical interaction rationale
     
     static var sample: FunctionalFitEvaluation {
         FunctionalFitEvaluation(
-            score: 94,
-            freedomOfMovement: "Gusseted armhole allows complete 180° arm elevation without pulling hem upwards.",
-            comfortDetail: "Organic pima cotton knit provides breathable thermoregulation during 4.5 hours of wear.",
-            activitySuitability: "Engineered for prolonged standing: low-stress waistband and ergonomic heel height (4 cm).",
-            materialFlexibility: "2% elastane woven into straight trousers gives dynamic bounce without sagging at knees."
+            suitability: .suitable,
+            score: 96,
+            insulationLevel: "Medium Insulation (Icl ≈ 0.8 clo - balanced for indoor AC at 22°C)",
+            moistureManagement: "Medium Moisture Management (absorbent natural fibers prevent cling)",
+            mobilityRequirement: "High Mobility Requirement (Mob = f(Standing, Semi-fitted))",
+            garmentFitProfile: "Semi-fitted (F = optimal air layer for thermal regulation)",
+            textileEngineering: "Breathable fine-gauge wool-silk knit + 2% elastane woven twill",
+            freedomOfMovement: "Gusseted armholes and stretch twill guarantee unhindered dynamic mobility.",
+            comfortDetail: "Organic pima wool knit provides breathable thermoregulation during 4.5 hours of wear.",
+            activitySuitability: "Engineered for prolonged standing: low-stress waistband and ergonomic block heel.",
+            physiologicalComfortExplanation: "Empirical Suitability (FS): Harmonious interaction between indoor neutral AC (22°C), moderate metabolic standing load, semi-fitted ease, and moisture-wicking natural fibers."
         )
     }
 }

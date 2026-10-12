@@ -11,7 +11,8 @@ import PhotosUI
 struct ProfileInputView: View {
     @Binding var profile: UserStylingProfile
     @State private var selectedBodyScanItem: PhotosPickerItem?
-    @State private var selectedReferenceItem: PhotosPickerItem?
+    @State private var selectedReferenceItems: [PhotosPickerItem] = []
+    @State private var showEnvironmentCustomizer: Bool = false
     
     var body: some View {
         VStack(spacing: 20) {
@@ -46,10 +47,10 @@ struct ProfileInputView: View {
                         }
                         
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Body Scan (Front Side)")
+                            Text("User Profile Photo (Optional)")
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
-                            Text("Used to extract body silhouette & joint anchors. Guardrail: AI strictly respects your selected body type & color season.")
+                            Text("Optional profile picture. AI styling is strictly grounded in your certified measurements, body type, torso type, and color season.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                             
@@ -176,9 +177,9 @@ struct ProfileInputView: View {
                 }
             }
             
-            // MARK: - 3. Occasion & Social Context (4 Dedicated Fields)
+            // MARK: - 3. Occasion & Social Context (4 Dedicated Fields + Smart Environmental Defaults)
             sectionCard(title: "3. Occasion & Social Context", icon: "calendar") {
-                VStack(spacing: 12) {
+                VStack(spacing: 14) {
                     
                     // Occasion Name
                     VStack(alignment: .leading, spacing: 4) {
@@ -235,47 +236,152 @@ struct ProfileInputView: View {
                         }
                         .pickerStyle(.segmented)
                     }
+                    
+                    Divider()
+                    
+                    // Option A: Environmental Context Smart Defaults (ASHRAE 55)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button(action: {
+                            withAnimation(.easeInOut) {
+                                showEnvironmentCustomizer.toggle()
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: "thermometer.sun")
+                                    .foregroundColor(.accentColor)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Environment Context (ASHRAE 55 Defaults)")
+                                        .font(.caption)
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.primary)
+                                    Text("\(profile.environment.location.rawValue) • \(profile.environment.timePeriod.rawValue) • \(profile.environment.temperature.rawValue)")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: showEnvironmentCustomizer ? "chevron.up" : "chevron.down")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(10)
+                            .background(Color(.systemGray6))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        
+                        if showEnvironmentCustomizer {
+                            VStack(spacing: 10) {
+                                HStack(spacing: 8) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Location")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Picker("Location", selection: $profile.environment.location) {
+                                            ForEach(OccasionLocation.allCases) { loc in
+                                                Text(loc.rawValue).tag(loc)
+                                            }
+                                        }
+                                        .pickerStyle(.segmented)
+                                    }
+                                    
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Time Period")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        Picker("Time Period", selection: $profile.environment.timePeriod) {
+                                            ForEach(TimePeriod.allCases) { p in
+                                                Text(p.rawValue).tag(p)
+                                            }
+                                        }
+                                        .pickerStyle(.menu)
+                                    }
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Ambient Temperature")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                    Picker("Temperature", selection: $profile.environment.temperature) {
+                                        ForEach(AmbientTemperature.allCases) { temp in
+                                            Text(temp.rawValue).tag(temp)
+                                        }
+                                    }
+                                    .pickerStyle(.segmented)
+                                }
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
                 }
             }
             
-            // MARK: - 4. Personal Style, Vision & Reference (3 Dedicated Fields)
-            sectionCard(title: "4. Style Vision & Preference", icon: "sparkles") {
+            // MARK: - 4. Personal Style, Vision & Reference List
+            sectionCard(title: "4. Style Vision & Reference Gallery", icon: "sparkles") {
                 VStack(spacing: 14) {
                     
-                    // Reference Image Picker (Preference)
-                    HStack(spacing: 14) {
-                        if let data = profile.referenceImageData, let uiImage = UIImage(data: data) {
-                            Image(uiImage: uiImage)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 70, height: 70)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                        } else {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color(.systemGray6))
-                                .frame(width: 70, height: 70)
-                                .overlay(
-                                    Image(systemName: "photo.artframe")
-                                        .foregroundColor(.secondary)
-                                )
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Reference Image (User Preference)")
+                    // Multi-Image Preference Gallery
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Reference Images (User Preference List)")
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
-                            Text("Direct style inspiration and aesthetic cues.")
-                                .font(.caption)
+                            Spacer()
+                            Text("\(profile.referenceImagesData.count) images")
+                                .font(.caption2)
                                 .foregroundColor(.secondary)
-                            
-                            PhotosPicker(selection: $selectedReferenceItem, matching: .images) {
-                                Label("Upload Reference", systemImage: "arrow.up.doc")
-                                    .font(.caption)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Color.accentColor.opacity(0.12))
-                                    .clipShape(Capsule())
+                        }
+                        Text("Upload multiple style references. Styling cues from all images will be synthesized to style Look 3 (Preference-Focused).")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                // Add button
+                                PhotosPicker(selection: $selectedReferenceItems, matching: .images) {
+                                    VStack(spacing: 6) {
+                                        Image(systemName: "plus.rectangle.on.rectangle")
+                                            .font(.title3)
+                                            .foregroundColor(.accentColor)
+                                        Text("+ Add Ref")
+                                            .font(.caption2)
+                                            .fontWeight(.medium)
+                                            .foregroundColor(.accentColor)
+                                    }
+                                    .frame(width: 80, height: 90)
+                                    .background(Color.accentColor.opacity(0.10))
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(Color.accentColor.opacity(0.3), style: StrokeStyle(lineWidth: 1.5, dash: [4]))
+                                    )
+                                }
+                                
+                                // Existing images list
+                                ForEach(Array(profile.referenceImagesData.enumerated()), id: \.offset) { index, data in
+                                    if let img = UIImage(data: data) {
+                                        ZStack(alignment: .topTrailing) {
+                                            Image(uiImage: img)
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 80, height: 90)
+                                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                            
+                                            // Delete image button
+                                            Button(action: {
+                                                withAnimation {
+                                                    _ = profile.referenceImagesData.remove(at: index)
+                                                }
+                                            }) {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .foregroundColor(.white)
+                                                    .background(Circle().fill(Color.black.opacity(0.6)))
+                                                    .font(.caption)
+                                            }
+                                            .padding(4)
+                                        }
+                                    }
+                                }
                             }
+                            .padding(.vertical, 4)
                         }
                     }
                     
@@ -306,11 +412,14 @@ struct ProfileInputView: View {
                 }
             }
         }
-        .onChange(of: selectedReferenceItem) { _, newItem in
+        .onChange(of: selectedReferenceItems) { _, newItems in
             Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self) {
-                    profile.referenceImageData = data
+                for item in newItems {
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        profile.referenceImagesData.append(data)
+                    }
                 }
+                selectedReferenceItems.removeAll()
             }
         }
     }

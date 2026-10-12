@@ -234,7 +234,52 @@ struct VariableWeights: Codable, Equatable {
     }
 }
 
-// MARK: - User Styling Profile (18 Dedicated Granular Fields + Weights)
+// MARK: - Environmental Context (Option A: Smart Defaults based on ASHRAE 55 & de Dear & Brager 2002)
+enum OccasionLocation: String, CaseIterable, Identifiable, Codable {
+    case indoor = "Indoor"
+    case outdoor = "Outdoor"
+    var id: String { rawValue }
+}
+
+enum TimePeriod: String, CaseIterable, Identifiable, Codable {
+    case morning = "Morning"
+    case afternoon = "Afternoon"
+    case evening = "Evening"
+    case night = "Night"
+    var id: String { rawValue }
+}
+
+enum AmbientTemperature: String, CaseIterable, Identifiable, Codable {
+    case cold = "Cold (<18°C)"
+    case neutral = "Neutral AC (21-24°C)"
+    case hot = "Hot (>26°C)"
+    var id: String { rawValue }
+}
+
+enum RelativeHumidity: String, CaseIterable, Identifiable, Codable {
+    case low = "Low (<30%)"
+    case moderate = "Moderate (30-60%)"
+    case high = "High (>60%)"
+    var id: String { rawValue }
+}
+
+struct EnvironmentContext: Codable, Equatable {
+    var location: OccasionLocation = .indoor
+    var timePeriod: TimePeriod = .evening
+    var temperature: AmbientTemperature = .neutral
+    var humidity: RelativeHumidity = .moderate
+    
+    static var smartDefault: EnvironmentContext {
+        EnvironmentContext(
+            location: .indoor,
+            timePeriod: .evening,
+            temperature: .neutral,
+            humidity: .moderate
+        )
+    }
+}
+
+// MARK: - User Styling Profile (Dedicated Granular Fields + Weights)
 struct UserStylingProfile: Equatable {
     // 1. Identity & Physical Profile
     var bodyScanImageData: Data?
@@ -248,14 +293,15 @@ struct UserStylingProfile: Equatable {
     // 2. Body Measurements (6 Dedicated Fields)
     var measurements: BodyMeasurements
     
-    // 3. Occasion & Social Context (4 Dedicated Fields)
+    // 3. Occasion & Social Context (Dedicated Fields + Environment)
     var occasionName: String
     var occasionDuration: Double    // hours
     var occasionActivity: OccasionActivity
     var dressCode: String
+    var environment: EnvironmentContext = .smartDefault
     
-    // 4. Personal Style, Vision & Reference (3 Dedicated Fields)
-    var referenceImageData: Data?
+    // 4. Personal Style, Vision & Reference (List of Reference Images)
+    var referenceImagesData: [Data] = []
     var personalityKeywords: String
     var visionStatement: String
     
@@ -283,7 +329,8 @@ struct UserStylingProfile: Equatable {
             occasionDuration: 4.5,
             occasionActivity: .standing,
             dressCode: "Creative Smart Formal",
-            referenceImageData: nil,
+            environment: .smartDefault,
+            referenceImagesData: [],
             personalityKeywords: "Sharp, Minimalist, Effortless, Confident",
             visionStatement: "Authoritative, elongated, and modern chic with structured poise",
             weights: .balanced

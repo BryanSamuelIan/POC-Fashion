@@ -204,7 +204,7 @@ struct MainStylingView: View {
             
             try? await Task.sleep(nanoseconds: 500_000_000)
             await MainActor.run {
-                generationStepMessage = "Step 3/4: Synthesizing 5 garment types (Top, Outer, Bottom, Shoes, Accessory) with fit rationales..."
+                generationStepMessage = "Step 3/4: Synthesizing 3 garments (Top, Outer, Bottom) with fit rationales..."
             }
             
             try? await Task.sleep(nanoseconds: 500_000_000)

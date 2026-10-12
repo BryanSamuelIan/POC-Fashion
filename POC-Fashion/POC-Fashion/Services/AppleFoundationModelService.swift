@@ -32,7 +32,7 @@ public struct ClothingAnalysis {
 @available(iOS 26.0, macOS 26.0, *)
 @Generable
 public struct GarmentRecommendationItem {
-    @Guide(description: "The category of the clothing: Top, Outer, Bottom, Shoes, Accessory")
+    @Guide(description: "The category of the clothing: Top, Outer, Bottom")
     public var category: String
 
     @Guide(description: "Specific descriptive garment name")
@@ -100,12 +100,6 @@ public struct LookRecommendationItem {
 
     @Guide(description: "Bottom clothing piece")
     public var bottom: GarmentRecommendationItem
-
-    @Guide(description: "Shoes footwear piece")
-    public var shoes: GarmentRecommendationItem
-
-    @Guide(description: "Accessory piece")
-    public var accessory: GarmentRecommendationItem
     
     public init(
         title: String,
@@ -114,9 +108,7 @@ public struct LookRecommendationItem {
         weightInfluenceSummary: String,
         top: GarmentRecommendationItem,
         outer: GarmentRecommendationItem,
-        bottom: GarmentRecommendationItem,
-        shoes: GarmentRecommendationItem,
-        accessory: GarmentRecommendationItem
+        bottom: GarmentRecommendationItem
     ) {
         self.title = title
         self.tagline = tagline
@@ -125,8 +117,6 @@ public struct LookRecommendationItem {
         self.top = top
         self.outer = outer
         self.bottom = bottom
-        self.shoes = shoes
-        self.accessory = accessory
     }
 }
 
@@ -191,14 +181,69 @@ final class AppleFoundationModelService {
             guard SystemLanguageModel().isAvailable else {
                 throw FoundationModelError.modelNotAvailable
             }
-            let session = LanguageModelSession()
-            let result = try await session.respond(
-                to: "Analyze \(description).",
-                generating: ClothingAnalysis.self
-            )
-            let analysis = result.content
-            print("[AppleFoundationModelService] Analyzed Piece: \(analysis.category) | FitScore: \(analysis.fitScore)/10 | \(analysis.explanation)")
-            return analysis
+            do {
+                let session = LanguageModelSession()
+                let result = try await session.respond(
+                    to: "Analyze \(description).",
+                    generating: ClothingAnalysis.self
+                )
+                let analysis = result.content
+                print("[AppleFoundationModelService] Analyzed Piece: \(analysis.category) | FitScore: \(analysis.fitScore)/10 | \(analysis.explanation)")
+                return analysis
+            } catch {
+                print("[AppleFoundationModelService] analyzeClothingPiece failed: \(error)")
+                throw FoundationModelError.sessionError(error.localizedDescription)
+            }
+        }
+        #endif
+        throw FoundationModelError.modelNotAvailable
+    }
+    
+    /// Generates a single look with 3 garments (Top, Outer, Bottom) and correlation paragraph using Apple's FoundationModels @Generable LookRecommendationItem.
+    /// Highly token-efficient and guaranteed to remain safely within on-device model context window limits.
+    func generateSingleLook(prompt: String, imageDatas: [Data] = []) async throws -> LookRecommendationItem {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            guard SystemLanguageModel().isAvailable else {
+                throw FoundationModelError.modelNotAvailable
+            }
+            
+            do {
+                let session = LanguageModelSession()
+                
+                #if canImport(FoundationModels)
+                if #available(iOS 27.0, macOS 27.0, *) {
+                    if !imageDatas.isEmpty {
+                        var attachments: [Attachment<ImageAttachmentContent>] = []
+                        for data in imageDatas {
+                            if let uiImg = UIImage(data: data), let cgImg = uiImg.cgImage {
+                                attachments.append(Attachment(cgImg))
+                            }
+                        }
+                        if !attachments.isEmpty {
+                            let multimodalPrompt = Prompt {
+                                attachments
+                                prompt
+                            }
+                            let result = try await session.respond(
+                                to: multimodalPrompt,
+                                generating: LookRecommendationItem.self
+                            )
+                            return result.content
+                        }
+                    }
+                }
+                #endif
+                
+                let result = try await session.respond(
+                    to: prompt,
+                    generating: LookRecommendationItem.self
+                )
+                return result.content
+            } catch {
+                print("[AppleFoundationModelService] generateSingleLook failed: \(error)")
+                throw FoundationModelError.sessionError(error.localizedDescription)
+            }
         }
         #endif
         throw FoundationModelError.modelNotAvailable
@@ -214,37 +259,42 @@ final class AppleFoundationModelService {
                 throw FoundationModelError.modelNotAvailable
             }
             
-            let session = LanguageModelSession()
-            
-            #if canImport(FoundationModels)
-            if #available(iOS 27.0, macOS 27.0, *) {
-                if !imageDatas.isEmpty {
-                    var attachments: [Attachment<ImageAttachmentContent>] = []
-                    for data in imageDatas {
-                        if let uiImg = UIImage(data: data), let cgImg = uiImg.cgImage {
-                            attachments.append(Attachment(cgImg))
+            do {
+                let session = LanguageModelSession()
+                
+                #if canImport(FoundationModels)
+                if #available(iOS 27.0, macOS 27.0, *) {
+                    if !imageDatas.isEmpty {
+                        var attachments: [Attachment<ImageAttachmentContent>] = []
+                        for data in imageDatas {
+                            if let uiImg = UIImage(data: data), let cgImg = uiImg.cgImage {
+                                attachments.append(Attachment(cgImg))
+                            }
                         }
-                    }
-                    if !attachments.isEmpty {
-                        let multimodalPrompt = Prompt {
-                            attachments
-                            prompt
+                        if !attachments.isEmpty {
+                            let multimodalPrompt = Prompt {
+                                attachments
+                                prompt
+                            }
+                            let result = try await session.respond(
+                                to: multimodalPrompt,
+                                generating: FullStylingRecommendation.self
+                            )
+                            return result.content
                         }
-                        let result = try await session.respond(
-                            to: multimodalPrompt,
-                            generating: FullStylingRecommendation.self
-                        )
-                        return result.content
                     }
                 }
+                #endif
+                
+                let result = try await session.respond(
+                    to: prompt,
+                    generating: FullStylingRecommendation.self
+                )
+                return result.content
+            } catch {
+                print("[AppleFoundationModelService] generateFullStyling failed: \(error)")
+                throw FoundationModelError.sessionError(error.localizedDescription)
             }
-            #endif
-            
-            let result = try await session.respond(
-                to: prompt,
-                generating: FullStylingRecommendation.self
-            )
-            return result.content
         }
         #endif
         throw FoundationModelError.modelNotAvailable

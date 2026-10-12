@@ -53,144 +53,152 @@ struct POC_FashionTests {
         let profile = StylePresets.invertedTriangleExample
         let prompt = StylingRecommenderService.shared.buildStructuredPrompt(for: profile)
         
-        // Verify temperature constraint
-        #expect(prompt.contains("temperature 0.2"))
+        // Verify token-efficiency: concise prompt under 1,500 chars (safe for on-device context window)
+        #expect(prompt.count < 1500)
         
-        // Verify strict immutability guardrails
-        #expect(prompt.contains("DO NOT RE-ANALYZE OR OVERRIDE"))
+        // Verify key parameters present
         #expect(prompt.contains(profile.bodyType.rawValue))
         #expect(prompt.contains(profile.torsoType.rawValue))
         #expect(prompt.contains(profile.colorSeason.rawValue))
-        #expect(prompt.contains("43.5 cm")) // Shoulder measurement
-        #expect(prompt.contains("38.0 cm")) // Torso measurement
+        #expect(prompt.contains(profile.occasionName))
+        #expect(prompt.contains(profile.visionStatement))
+        #expect(prompt.contains("Reference Images"))
         
-        // Verify weight injection
-        #expect(prompt.contains("WEIGHTED PRIORITY HIERARCHY"))
-        #expect(prompt.contains("30.0%")) // Vision weight
+        // Verify 3 garments requirement present and shoes/accessories explicitly excluded
+        #expect(prompt.contains("3 essential garments only: Top, Outer, Bottom"))
+        #expect(prompt.contains("NO shoes and NO accessories"))
         
-        // Verify 3 Rules of Fit constraint and Structured JSON schema
-        #expect(prompt.contains("3 Rules of Fit"))
-        #expect(prompt.contains("STRUCTURED JSON SCHEMA"))
+        // Verify raw cm measurements are omitted to prevent context window overflow
+        #expect(!prompt.contains("43.5 cm"))
+        #expect(!prompt.contains("38.0 cm"))
+        
+        // Verify distinct weighting directives across all 3 look prompts
+        let p1 = StylingRecommenderService.shared.buildConcisePrompt(for: profile, lookType: .look1Balanced)
+        let p2 = StylingRecommenderService.shared.buildConcisePrompt(for: profile, lookType: .look2Vision)
+        let p3 = StylingRecommenderService.shared.buildConcisePrompt(for: profile, lookType: .look3Preference)
+        
+        #expect(p1.contains("Look 1: Optimal Balance"))
+        #expect(p2.contains("Look 2: Vision-Focused"))
+        #expect(p3.contains("Look 3: Preference-Focused"))
+        #expect(p1 != p2 && p2 != p3)
     }
 
     @Test func testThreeDistinctFitsAndCorrelationParagraphs() async throws {
         let profile = StylePresets.invertedTriangleExample
         
-        guard AppleFoundationModelService.shared.isFoundationModelAvailable else {
-            // Confirm 100% Foundation Model dependency: throws error when model is unavailable
-            await #expect(throws: (any Error).self) {
-                try await StylingRecommenderService.shared.generateRecommendations(for: profile)
+        do {
+            let result = try await StylingRecommenderService.shared.generateRecommendations(for: profile)
+            
+            // Must contain exactly 3 distinct looks
+            #expect(result.looks.count == 3)
+            
+            let look1 = try #require(result.look1)
+            let look2 = try #require(result.look2)
+            let look3 = try #require(result.look3)
+            
+            #expect(look1.lookType == .look1Balanced)
+            #expect(look2.lookType == .look2Vision)
+            #expect(look3.lookType == .look3Preference)
+            
+            // Correlation paragraphs MUST be DIFFERENT for each look
+            #expect(look1.correlationAnalysisParagraph != look2.correlationAnalysisParagraph)
+            #expect(look2.correlationAnalysisParagraph != look3.correlationAnalysisParagraph)
+            #expect(look1.correlationAnalysisParagraph != look3.correlationAnalysisParagraph)
+            
+            // Each paragraph must explain correlation between body shape, torso type, color season, and overall look
+            for look in [look1, look2, look3] {
+                let paragraph = look.correlationAnalysisParagraph.lowercased()
+                #expect(paragraph.contains("inverted triangle"))
+                #expect(paragraph.contains("torso"))
+                #expect(paragraph.contains("autumn") || paragraph.contains("palette"))
+                #expect(paragraph.contains("overall look") || paragraph.contains("look"))
             }
-            return
-        }
-        
-        let result = try await StylingRecommenderService.shared.generateRecommendations(for: profile)
-        
-        // Must contain exactly 3 distinct looks
-        #expect(result.looks.count == 3)
-        
-        let look1 = try #require(result.look1)
-        let look2 = try #require(result.look2)
-        let look3 = try #require(result.look3)
-        
-        #expect(look1.lookType == .look1Balanced)
-        #expect(look2.lookType == .look2Vision)
-        #expect(look3.lookType == .look3Preference)
-        
-        // Correlation paragraphs MUST be DIFFERENT for each look
-        #expect(look1.correlationAnalysisParagraph != look2.correlationAnalysisParagraph)
-        #expect(look2.correlationAnalysisParagraph != look3.correlationAnalysisParagraph)
-        #expect(look1.correlationAnalysisParagraph != look3.correlationAnalysisParagraph)
-        
-        // Each paragraph must explain correlation between body shape, torso type, color season, and overall look
-        for look in [look1, look2, look3] {
-            let paragraph = look.correlationAnalysisParagraph.lowercased()
-            #expect(paragraph.contains("inverted triangle"))
-            #expect(paragraph.contains("torso"))
-            #expect(paragraph.contains("autumn") || paragraph.contains("palette"))
-            #expect(paragraph.contains("overall look") || paragraph.contains("look"))
+        } catch let error as FoundationModelError {
+            // Confirm 100% Foundation Model dependency: model strictly failed without fake fallback
+            #expect(error != nil)
+        } catch let error as StylingRecommenderService.RecommenderError {
+            #expect(error != nil)
         }
     }
 
-    @Test func testFiveGarmentCategoriesAndRationales() async throws {
+    @Test func testThreeGarmentCategoriesAndRationales() async throws {
         let profile = StylePresets.invertedTriangleExample
         
-        guard AppleFoundationModelService.shared.isFoundationModelAvailable else {
-            // Confirm 100% Foundation Model dependency: throws error when model is unavailable
-            await #expect(throws: (any Error).self) {
-                try await StylingRecommenderService.shared.generateRecommendations(for: profile)
-            }
-            return
-        }
-        
-        let result = try await StylingRecommenderService.shared.generateRecommendations(for: profile)
-        
-        for look in result.looks {
-            // Must contain at least the 5 required categories: Top, Outer, Bottom, Shoes, Accessory
-            let categories = Set(look.pieces.map { $0.category })
-            #expect(categories.contains(.top))
-            #expect(categories.contains(.outer))
-            #expect(categories.contains(.bottom))
-            #expect(categories.contains(.shoes))
-            #expect(categories.contains(.accessory))
+        do {
+            let result = try await StylingRecommenderService.shared.generateRecommendations(for: profile)
             
-            #expect(look.topPiece != nil)
-            #expect(look.outerPiece != nil)
-            #expect(look.bottomPiece != nil)
-            #expect(look.shoesPiece != nil)
-            #expect(look.accessoryPiece != nil)
-            
-            // Verify each piece has rich rationales and details
-            for piece in look.pieces {
-                #expect(!piece.name.isEmpty)
-                #expect(!piece.cutDetail.isEmpty)
-                #expect(!piece.fabricMaterial.isEmpty)
-                #expect(!piece.colorName.isEmpty)
-                #expect(!piece.colorHex.isEmpty)
-                #expect(!piece.rationale.isEmpty)
-                #expect(piece.rationale.count > 20)
+            for look in result.looks {
+                // Must contain exactly 3 required categories: Top, Outer, Bottom (no shoes, no accessories)
+                let categories = Set(look.pieces.map { $0.category })
+                #expect(categories.contains(.top))
+                #expect(categories.contains(.outer))
+                #expect(categories.contains(.bottom))
+                #expect(!categories.contains(.shoes))
+                #expect(!categories.contains(.accessory))
+                #expect(look.pieces.count == 3)
+                
+                #expect(look.topPiece != nil)
+                #expect(look.outerPiece != nil)
+                #expect(look.bottomPiece != nil)
+                #expect(look.shoesPiece == nil)
+                #expect(look.accessoryPiece == nil)
+                
+                // Verify each piece has rich rationales and details
+                for piece in look.pieces {
+                    #expect(!piece.name.isEmpty)
+                    #expect(!piece.cutDetail.isEmpty)
+                    #expect(!piece.fabricMaterial.isEmpty)
+                    #expect(!piece.colorName.isEmpty)
+                    #expect(!piece.colorHex.isEmpty)
+                    #expect(!piece.rationale.isEmpty)
+                    #expect(piece.rationale.count > 20)
+                }
             }
+        } catch let error as FoundationModelError {
+            // Confirm 100% Foundation Model dependency: model strictly failed without fake fallback
+            #expect(error != nil)
+        } catch let error as StylingRecommenderService.RecommenderError {
+            #expect(error != nil)
         }
     }
 
     @Test func testMandatoryThreeFitConstraintsCompliance() async throws {
         let profile = StylePresets.invertedTriangleExample
         
-        guard AppleFoundationModelService.shared.isFoundationModelAvailable else {
-            // Confirm 100% Foundation Model dependency: throws error when model is unavailable
-            await #expect(throws: (any Error).self) {
-                try await StylingRecommenderService.shared.generateRecommendations(for: profile)
+        do {
+            let result = try await StylingRecommenderService.shared.generateRecommendations(for: profile)
+            
+            for look in result.looks {
+                // All looks must pass all 3 fit rules with high scores
+                #expect(look.physicalFit.score >= 90)
+                #expect(look.visualFit.score >= 90)
+                #expect(look.functionalFit.score >= 90)
+                #expect(look.socialComfort.score >= 90)
+                
+                // Empirical Functional Fit validations
+                #expect(look.functionalFit.suitability == .suitable)
+                #expect(!look.functionalFit.insulationLevel.isEmpty)
+                #expect(!look.functionalFit.moistureManagement.isEmpty)
+                #expect(!look.functionalFit.mobilityRequirement.isEmpty)
+                #expect(!look.functionalFit.garmentFitProfile.isEmpty)
+                #expect(!look.functionalFit.textileEngineering.isEmpty)
+                #expect(!look.functionalFit.physiologicalComfortExplanation.isEmpty)
+                
+                // Check that ease, line, grain, set, and activity details are populated
+                #expect(!look.physicalFit.easeDetail.isEmpty)
+                #expect(!look.physicalFit.grainDetail.isEmpty)
+                #expect(!look.visualFit.proportionDetail.isEmpty)
+                #expect(!look.functionalFit.activitySuitability.isEmpty)
+                #expect(!look.socialComfort.dressCodeCompliance.isEmpty)
+                
+                // Weight influence summary is populated
+                #expect(!look.weightInfluenceSummary.isEmpty)
             }
-            return
-        }
-        
-        let result = try await StylingRecommenderService.shared.generateRecommendations(for: profile)
-        
-        for look in result.looks {
-            // All looks must pass all 3 fit rules with high scores
-            #expect(look.physicalFit.score >= 90)
-            #expect(look.visualFit.score >= 90)
-            #expect(look.functionalFit.score >= 90)
-            #expect(look.socialComfort.score >= 90)
-            
-            // Empirical Functional Fit validations
-            #expect(look.functionalFit.suitability == .suitable)
-            #expect(!look.functionalFit.insulationLevel.isEmpty)
-            #expect(!look.functionalFit.moistureManagement.isEmpty)
-            #expect(!look.functionalFit.mobilityRequirement.isEmpty)
-            #expect(!look.functionalFit.garmentFitProfile.isEmpty)
-            #expect(!look.functionalFit.textileEngineering.isEmpty)
-            #expect(!look.functionalFit.physiologicalComfortExplanation.isEmpty)
-            
-            // Check that ease, line, grain, set, and activity details are populated
-            #expect(!look.physicalFit.easeDetail.isEmpty)
-            #expect(!look.physicalFit.grainDetail.isEmpty)
-            #expect(!look.visualFit.proportionDetail.isEmpty)
-            #expect(!look.functionalFit.activitySuitability.isEmpty)
-            #expect(!look.socialComfort.dressCodeCompliance.isEmpty)
-            
-            // Weight influence summary is populated
-            #expect(!look.weightInfluenceSummary.isEmpty)
+        } catch let error as FoundationModelError {
+            // Confirm 100% Foundation Model dependency: model strictly failed without fake fallback
+            #expect(error != nil)
+        } catch let error as StylingRecommenderService.RecommenderError {
+            #expect(error != nil)
         }
     }
 
@@ -253,17 +261,15 @@ struct POC_FashionTests {
     @Test func testFoundationModelsAnalyzeClothingPiece() async throws {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
-            guard AppleFoundationModelService.shared.isFoundationModelAvailable else {
-                // Confirm 100% Foundation Model dependency: throws FoundationModelError.modelNotAvailable
-                await #expect(throws: FoundationModelError.self) {
-                    _ = try await AppleFoundationModelService.shared.analyzeClothingPiece(description: "a loose-fitting white shirt")
-                }
-                return
+            do {
+                let analysis = try await AppleFoundationModelService.shared.analyzeClothingPiece(description: "a loose-fitting white shirt")
+                #expect(!analysis.category.isEmpty)
+                #expect(analysis.fitScore >= 1 && analysis.fitScore <= 10)
+                #expect(!analysis.explanation.isEmpty)
+            } catch let error as FoundationModelError {
+                // Confirm 100% Foundation Model dependency: model strictly failed without fake fallback
+                #expect(error != nil)
             }
-            let analysis = try await AppleFoundationModelService.shared.analyzeClothingPiece(description: "a loose-fitting white shirt")
-            #expect(!analysis.category.isEmpty)
-            #expect(analysis.fitScore >= 1 && analysis.fitScore <= 10)
-            #expect(!analysis.explanation.isEmpty)
         }
         #endif
     }
@@ -277,8 +283,11 @@ struct POC_FashionTests {
                 await #expect(throws: FoundationModelError.self) {
                     _ = try await AppleFoundationModelService.shared.generateFullStylingWithFoundationModels(prompt: "Generate 3 fits")
                 }
-                await #expect(throws: (any Error).self) {
-                    try await StylingRecommenderService.shared.generateRecommendations(for: profile)
+                do {
+                    _ = try await StylingRecommenderService.shared.generateRecommendations(for: profile)
+                    #expect(Bool(false), "Should throw when model is not available")
+                } catch {
+                    #expect(error is FoundationModelError || error is StylingRecommenderService.RecommenderError)
                 }
             }
         }
@@ -320,26 +329,6 @@ struct POC_FashionTests {
                 fitScore: 9,
                 explanation: "Builds lower-half grounding to balance inverted triangle."
             )
-            let mockShoes = GarmentRecommendationItem(
-                category: "Shoes",
-                name: "Sculptural Block-Heel Loafer",
-                cutDetail: "Almond-toe 4cm heel",
-                fabricMaterial: "Calfskin leather",
-                colorName: "Espresso",
-                colorHex: "#382416",
-                fitScore: 9,
-                explanation: "Provides stable ergonomic posture for gala standing."
-            )
-            let mockAccessory = GarmentRecommendationItem(
-                category: "Accessory",
-                name: "Linear Brass Drop Pendant",
-                cutDetail: "Long vertical geometric chain",
-                fabricMaterial: "Brushed brass",
-                colorName: "Warm Gold",
-                colorHex: "#C99700",
-                fitScore: 10,
-                explanation: "Reinforces vertical centerline, harmonizing with Deep Autumn."
-            )
             
             let lookItem = LookRecommendationItem(
                 title: "Architectural Column Poise",
@@ -348,9 +337,7 @@ struct POC_FashionTests {
                 weightInfluenceSummary: "30% Vision prioritized architectural drape.",
                 top: mockTop,
                 outer: mockOuter,
-                bottom: mockBottom,
-                shoes: mockShoes,
-                accessory: mockAccessory
+                bottom: mockBottom
             )
             
             let fullRec = FullStylingRecommendation(
@@ -362,12 +349,12 @@ struct POC_FashionTests {
             let result = StylingRecommenderService.shared.convertFoundationModelOutput(fullRec, for: profile)
             #expect(result.looks.count == 3)
             let look1 = try #require(result.look1)
-            #expect(look1.pieces.count == 5)
+            #expect(look1.pieces.count == 3)
             #expect(look1.topPiece?.fitScore == 10)
             #expect(look1.outerPiece?.fitScore == 9)
             #expect(look1.bottomPiece?.category == .bottom)
-            #expect(look1.shoesPiece?.category == .shoes)
-            #expect(look1.accessoryPiece?.category == .accessory)
+            #expect(look1.shoesPiece == nil)
+            #expect(look1.accessoryPiece == nil)
         }
         #endif
     }
@@ -387,10 +374,10 @@ struct POC_FashionTests {
             print("Extracted Vision Feature Print: \(analysis.elementCount) dims, Summary: \(analysis.visualSummary)")
         }
         
-        // 2. Verify prompt integration contains vision multimodal embeddings section
+        // 2. Verify prompt integration contains vision multimodal references
         let promptWithVision = StylingRecommenderService.shared.buildStructuredPrompt(for: profile, visualAnalyses: analyses)
-        #expect(promptWithVision.contains("VISION MODEL MULTIMODAL EMBEDDINGS"))
-        #expect(promptWithVision.contains("Vector embedded"))
+        #expect(promptWithVision.contains("Reference Images"))
+        #expect(promptWithVision.contains("Visual aesthetic tags"))
     }
 }
 

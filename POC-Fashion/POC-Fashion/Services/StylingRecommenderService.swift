@@ -31,148 +31,99 @@ final class StylingRecommenderService {
         }
     }
     
-    // MARK: - Generate Recommendations Pipeline (100% Native Apple FoundationModels)
+    // MARK: - Generate Recommendations Pipeline (Modular Per-Look with Native FoundationModels)
     func generateRecommendations(for profile: UserStylingProfile) async throws -> StylingResult {
         // 1. Extract on-device Vision feature prints & aesthetic taxonomy from preference images
         let visualAnalyses = await VisionEmbeddingService.shared.analyzePreferenceImages(imageDatas: profile.referenceImagesData)
         
-        // 2. Build prompt containing user profile, guidelines, and on-device visual embedding signals
-        let prompt = buildStructuredPrompt(for: profile, visualAnalyses: visualAnalyses)
-        print("Generated System Prompt for Apple Foundation Model:\n\(prompt)")
-        
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, *) {
-            // 3. 100% Native Apple Foundation Model invocation via @Generable:
-            let structuredRec = try await AppleFoundationModelService.shared.generateFullStylingWithFoundationModels(
-                prompt: prompt,
+            // Generate Look 1: Optimal Balance (Balanced weights)
+            let prompt1 = buildConcisePrompt(for: profile, lookType: .look1Balanced, visualAnalyses: visualAnalyses)
+            print("[StylingRecommenderService] Generating Look 1 (Optimal Balance)...")
+            let look1Item = try await AppleFoundationModelService.shared.generateSingleLook(
+                prompt: prompt1,
                 imageDatas: profile.referenceImagesData
             )
-            print("[StylingRecommenderService] Generated styling using Apple FoundationModels @Generable with multimodal attachments")
-            return convertFoundationModelOutput(structuredRec, for: profile)
+            let look1 = convertLookItem(look1Item, type: .look1Balanced, profile: profile)
+            
+            // Generate Look 2: Vision-Focused (Vision-prioritized weights)
+            let prompt2 = buildConcisePrompt(for: profile, lookType: .look2Vision, visualAnalyses: visualAnalyses)
+            print("[StylingRecommenderService] Generating Look 2 (Vision-Focused)...")
+            let look2Item = try await AppleFoundationModelService.shared.generateSingleLook(
+                prompt: prompt2,
+                imageDatas: profile.referenceImagesData
+            )
+            let look2 = convertLookItem(look2Item, type: .look2Vision, profile: profile)
+            
+            // Generate Look 3: Preference-Focused (Preference & Moodboard prioritized weights)
+            let prompt3 = buildConcisePrompt(for: profile, lookType: .look3Preference, visualAnalyses: visualAnalyses)
+            print("[StylingRecommenderService] Generating Look 3 (Preference-Focused)...")
+            let look3Item = try await AppleFoundationModelService.shared.generateSingleLook(
+                prompt: prompt3,
+                imageDatas: profile.referenceImagesData
+            )
+            let look3 = convertLookItem(look3Item, type: .look3Preference, profile: profile)
+            
+            print("[StylingRecommenderService] Successfully generated 3 modular looks with on-device FoundationModels")
+            return StylingResult(
+                profileSnapshot: profile,
+                looks: [look1, look2, look3]
+            )
         }
         #endif
         
         throw RecommenderError.modelOutputUnavailable
     }
     
-    // MARK: - Prompt Builder for Apple Foundation Model
+    // MARK: - Concise Prompt Builder (Optimized for On-Device Context Window)
+    func buildConcisePrompt(
+        for profile: UserStylingProfile,
+        lookType: LookType,
+        visualAnalyses: [VisionEmbeddingService.PreferenceImageAnalysis] = []
+    ) -> String {
+        let aestheticTags = visualAnalyses.flatMap { $0.dominantAestheticKeywords }.prefix(6).joined(separator: ", ")
+        let tagDescription = aestheticTags.isEmpty ? "Tailored Drape, Minimalist Structure" : aestheticTags
+        
+        let focusDirective: String
+        let weightsNote: String
+        switch lookType {
+        case .look1Balanced:
+            focusDirective = "Look 1: Optimal Balance — Prioritize natural golden-ratio equilibrium between the \(profile.bodyType.rawValue) frame and \(profile.torsoType.rawValue) for refined occasion poise."
+            weightsNote = "Balanced Weights: 40% Body Balance, 30% Occasion, 20% Vision, 10% Color Season"
+        case .look2Vision:
+            focusDirective = "Look 2: Vision-Focused — Prioritize user's aspirational vision: \"\(profile.visionStatement)\" with commanding, architectural vertical tailoring."
+            weightsNote = "Vision-Dominated Weights: 60% Vision, 20% Occasion, 20% Body Balance"
+        case .look3Preference:
+            focusDirective = "Look 3: Preference-Focused — Prioritize moodboard references (aesthetic tags: [\(tagDescription)]), dynamic textures, and expressive seasonal drape."
+            weightsNote = "Preference-Dominated Weights: 50% Moodboard & Preferences, 30% Body Balance, 20% Vision"
+        }
+        
+        return """
+        Design a bespoke fashion outfit for this client:
+        - Body Type: \(profile.bodyType.rawValue)
+        - Torso Type: \(profile.torsoType.rawValue)
+        - Color Season: \(profile.colorSeason.rawValue) (Signature Palette: \(profile.colorSeason.signatureHexColors.joined(separator: ", ")))
+        - Occasion: "\(profile.occasionName)" (Dress Code: \(profile.dressCode), Activity: \(profile.occasionActivity.rawValue))
+        - Style Vision: "\(profile.visionStatement)"
+        - Reference Images: \(profile.referenceImagesData.count) moodboard images attached (Visual aesthetic tags: [\(tagDescription)])
+        
+        [STYLING FOCUS - \(weightsNote)]
+        \(focusDirective)
+        
+        [REQUIREMENTS]
+        1. Design the 3 essential garments only: Top, Outer, Bottom (strictly NO shoes and NO accessories).
+           For each garment, specify: name, cutDetail, fabricMaterial, colorName, colorHex, fitScore (1-10), and rationale explaining why it flatters the \(profile.bodyType.rawValue) and \(profile.torsoType.rawValue).
+        2. Write a comprehensive analytical paragraph explaining the correlation of the user's Body Type (\(profile.bodyType.rawValue)), Torso Type (\(profile.torsoType.rawValue)), and Color Season (\(profile.colorSeason.rawValue)) with the overall look.
+        """
+    }
+    
+    /// Backward-compatible helper for tests
     func buildStructuredPrompt(
         for profile: UserStylingProfile,
         visualAnalyses: [VisionEmbeddingService.PreferenceImageAnalysis] = []
     ) -> String {
-        let normalizedWeights = profile.weights.normalized
-        
-        let visionEmbeddingsSection: String
-        if !visualAnalyses.isEmpty {
-            let items = visualAnalyses.map { "- \($0.visualSummary)" }.joined(separator: "\n")
-            visionEmbeddingsSection = """
-            
-            [VISION MODEL MULTIMODAL EMBEDDINGS & AESTHETIC RECOGNITION]
-            On-device Apple Vision framework (VNGenerateImageFeaturePrintRequest & VNClassifyImageRequest) extracted the following vector embeddings & visual aesthetic signals:
-            \(items)
-            Directive: Ground garment silhouettes, texture nuances, and style details in these visual preference signals while strictly respecting the user's verified proportions.
-            """
-        } else {
-            visionEmbeddingsSection = ""
-        }
-        
-        return """
-        [ROLE: MASTER HAUTE COUTURE FASHION DIRECTOR & FIT THEORIST]
-        You are Apple Intelligence's advanced styling foundation model operating at temperature \(temperature).
-        Your mission is to creatively conceptualize and engineer bespoke fashion recommendations.
-        Do NOT use rigid, generic templates or cliché lists. Think deeply about clothing cuts, drapery dynamics, textile compositions, and chromatic harmonies.
-        
-        [VERIFIED USER ATTRIBUTES - GROUND TRUTH IMMUTABILITY]
-        CRITICAL GUARDRAIL: DO NOT RE-ANALYZE OR OVERRIDE the user's verified Body Type, Torso Type, Color Season, or Measurements.
-        Treat these parameters as immutable ground-truth facts:
-        - Stature & Mass: Height \(profile.height) cm, Weight \(profile.weight) kg, Age \(profile.age)
-        - Body Type: \(profile.bodyType.rawValue)
-        - Torso Type: \(profile.torsoType.rawValue)
-        - Certified Color Season: \(profile.colorSeason.rawValue) (Signature Palette: \(profile.colorSeason.signatureHexColors.joined(separator: ", ")))
-        - Physical Body Measurements:
-          * Shoulder Span: \(profile.measurements.shoulder) cm
-          * Torso Length: \(profile.measurements.torsoLength) cm
-          * Bust Circumference: \(profile.measurements.bust) cm
-          * Waist Circumference: \(profile.measurements.waist) cm
-          * Hip Circumference: \(profile.measurements.hip) cm
-          * Arm Length: \(profile.measurements.armLength) cm
-        
-        [OCCASION & ENVIRONMENTAL CONTEXT - ASHRAE 55]
-        - Occasion: "\(profile.occasionName)"
-        - Dress Code: "\(profile.dressCode)"
-        - Duration: \(profile.occasionDuration) hours
-        - Activity: \(profile.occasionActivity.rawValue) (Ergonomics: \(profile.occasionActivity.ergonomicImpact))
-        - Environment: \(profile.environment.location.rawValue) (\(profile.environment.temperature.rawValue), \(profile.environment.humidity.rawValue))
-        
-        [PERSONAL ASPIRATIONS & STYLE VISION]
-        - Personal Vision: "\(profile.visionStatement)"
-        - Personality Keywords: "\(profile.personalityKeywords)"
-        - Preference Reference Count: \(profile.referenceImagesData.count) moodboard images\(visionEmbeddingsSection)
-        
-        [WEIGHTED PRIORITY HIERARCHY]
-        - Vision Priority: \(String(format: "%.1f", normalizedWeights.visionWeight))%
-        - Occasion & Ergonomics Priority: \(String(format: "%.1f", normalizedWeights.occasionWeight))%
-        - Preference / Moodboard Priority: \(String(format: "%.1f", normalizedWeights.preferenceWeight))%
-        - Body Balance & Torso Proportion Priority: \(String(format: "%.1f", normalizedWeights.bodyBalanceWeight))%
-        - Personality Keywords Priority: \(String(format: "%.1f", normalizedWeights.personalityWeight))%
-        - Color Season Palette Priority: \(String(format: "%.1f", normalizedWeights.colorSeasonWeight))%
-        
-        [STYLING OBJECTIVES - THE 3 RULES OF FIT]
-        Synthesize 3 distinct looks complying with the 3 Rules of Fit (Physical Fit, Visual Fit, Functional Fit):
-        - Look 1: Optimal Balance (Golden-ratio harmony balancing upper and lower silhouette)
-        - Look 2: Vision-Focused (Amplifying "\(profile.visionStatement)" with aspirational tailoring)
-        - Look 3: Preference-Focused (Translating moodboard texture and directional drapery into balanced proportions)
-        
-        For EACH look:
-        1. Design all 5 essential garments: Top, Outer, Bottom, Shoes, and Accessory.
-           Specify cut & construction, high-grade textile fabric, color name and hex code from their palette, and an in-depth rationale grounded in their exact measurements and decision weights.
-        2. Write a comprehensive analytical paragraph explaining the correlation of the user's Body Type, Torso Type, and Color Season with the overall look.
-        3. Evaluate Physical, Visual, Functional (FS = f(F, Icl, M, Mob, E)), and Social fit.
-        
-        [OUTPUT FORMAT - STRUCTURED JSON SCHEMA]
-        Return ONLY valid JSON matching this schema:
-        {
-          "looks": [
-            {
-              "lookType": "Look 1: Optimal Balance" | "Look 2: Vision-Focused" | "Look 3: Preference-Focused",
-              "title": "string",
-              "tagline": "string",
-              "correlationAnalysisParagraph": "string",
-              "pieces": [
-                {
-                  "category": "Top" | "Outer" | "Bottom" | "Shoes" | "Accessory",
-                  "name": "string",
-                  "cutDetail": "string",
-                  "fabricMaterial": "string",
-                  "colorName": "string",
-                  "colorHex": "#RRGGBB",
-                  "rationale": "string"
-                }
-              ],
-              "palette": [
-                { "name": "string", "hex": "#RRGGBB", "role": "string" }
-              ],
-              "weightInfluenceSummary": "string",
-              "physicalFit": { "score": 96, "easeDetail": "string", "lineDetail": "string", "grainDetail": "string", "setDetail": "string", "balanceDetail": "string" },
-              "visualFit": { "score": 97, "proportionDetail": "string", "silhouetteDetail": "string", "lineDetail": "string", "balanceDetail": "string", "harmonyDetail": "string" },
-              "functionalFit": {
-                "suitability": "Suitable",
-                "score": 97,
-                "insulationLevel": "string",
-                "moistureManagement": "string",
-                "mobilityRequirement": "string",
-                "garmentFitProfile": "string",
-                "textileEngineering": "string",
-                "freedomOfMovement": "string",
-                "comfortDetail": "string",
-                "activitySuitability": "string",
-                "physiologicalComfortExplanation": "string"
-              },
-              "socialComfort": { "score": 98, "dressCodeCompliance": "string", "formalityRating": "string", "contextConfidence": "string" }
-            }
-          ]
-        }
-        """
+        return buildConcisePrompt(for: profile, lookType: .look1Balanced, visualAnalyses: visualAnalyses)
     }
     
     #if canImport(FoundationModels)
@@ -193,9 +144,7 @@ final class StylingRecommenderService {
         let pieces = [
             convertGarmentItem(item.top, defaultCategory: .top),
             convertGarmentItem(item.outer, defaultCategory: .outer),
-            convertGarmentItem(item.bottom, defaultCategory: .bottom),
-            convertGarmentItem(item.shoes, defaultCategory: .shoes),
-            convertGarmentItem(item.accessory, defaultCategory: .accessory)
+            convertGarmentItem(item.bottom, defaultCategory: .bottom)
         ]
         
         let defaultPhysical = PhysicalFitEvaluation(

@@ -181,13 +181,13 @@ struct ResultsView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
                 
-                // MARK: - The 5 Garment Types: Top, Outer, Bottom, Shoes, Accessory
+                // MARK: - The 3 Garment Types: Top, Outer, Bottom
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Label("Engineered Wardrobe (5 Categories)", systemImage: "hanger")
+                            Label("Engineered Wardrobe (3 Garments)", systemImage: "hanger")
                                 .font(.headline)
-                            Text("Top, Outerwear, Bottom, Shoes, and Accessory with individual rationales")
+                            Text("Top, Outerwear, and Bottom with individual fit rationales")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                         }

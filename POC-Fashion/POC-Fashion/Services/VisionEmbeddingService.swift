@@ -17,8 +17,29 @@ final class VisionEmbeddingService {
     struct PreferenceImageAnalysis: Equatable {
         var embeddingData: Data
         var elementCount: Int
+        var dominantColorHex: String
         var dominantAestheticKeywords: [String]
         var visualSummary: String
+        
+        init(
+            embeddingData: Data,
+            elementCount: Int,
+            dominantColorHex: String = "#2E3A23",
+            dominantAestheticKeywords: [String],
+            visualSummary: String
+        ) {
+            self.embeddingData = embeddingData
+            self.elementCount = elementCount
+            self.dominantColorHex = dominantColorHex
+            self.dominantAestheticKeywords = dominantAestheticKeywords
+            self.visualSummary = visualSummary
+        }
+    }
+    
+    /// Embeds preference / moodboard reference images into vector feature prints,
+    /// dominant palettes, and aesthetic taxonomy so they can be processed by Apple Foundation Models.
+    func embedReferenceImages(imageDatas: [Data]) async -> [PreferenceImageAnalysis] {
+        return await analyzePreferenceImages(imageDatas: imageDatas)
     }
     
     /// Analyzes preference / moodboard images using on-device Vision framework
@@ -79,16 +100,70 @@ final class VisionEmbeddingService {
                 keywords = ["Tailored Drape", "Minimalist Structure", "Rich Texture", "Architectural Poise"]
             }
             
-            let summary = "Moodboard Image \(index + 1): Vector embedded (\(elementCount) dims), visual aesthetic tags: [\(keywords.joined(separator: ", "))]"
+            // 3. Dominant Tone & Palette Extraction
+            let dominantHex = extractDominantColorHex(from: uiImage)
+            
+            let summary = "Moodboard Image \(index + 1): Vector embedded (\(elementCount) dims, tone: \(dominantHex)), visual aesthetic tags: [\(keywords.joined(separator: ", "))]"
             
             analyses.append(PreferenceImageAnalysis(
                 embeddingData: featureData,
                 elementCount: elementCount,
+                dominantColorHex: dominantHex,
                 dominantAestheticKeywords: keywords,
                 visualSummary: summary
             ))
         }
         
         return analyses
+    }
+    
+    /// Formats the extracted vision embeddings into a structured prompt segment
+    /// ready for consumption by Apple Foundation Models.
+    func formatEmbeddingsForPrompt(analyses: [PreferenceImageAnalysis]) -> String {
+        guard !analyses.isEmpty else { return "" }
+        
+        return analyses.enumerated().map { index, item in
+            let tags = item.dominantAestheticKeywords.prefix(3).joined(separator: ", ")
+            return "• Reference Image \(index + 1): Vector embedded (\(item.elementCount) dims, tone: \(item.dominantColorHex)), Aesthetics: [\(tags)]"
+        }.joined(separator: "\n")
+    }
+    
+    /// Extracts dominant color from image pixels via CoreGraphics sampling
+    private func extractDominantColorHex(from image: UIImage) -> String {
+        guard let cgImage = image.cgImage else { return "#2E3A23" }
+        let width = 8
+        let height = 8
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        var rawData = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(
+            data: &rawData,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        ) else {
+            return "#2E3A23"
+        }
+        
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        
+        var totalR: UInt64 = 0
+        var totalG: UInt64 = 0
+        var totalB: UInt64 = 0
+        let pixelCount = UInt64(width * height)
+        
+        for i in stride(from: 0, to: rawData.count, by: 4) {
+            totalR += UInt64(rawData[i])
+            totalG += UInt64(rawData[i + 1])
+            totalB += UInt64(rawData[i + 2])
+        }
+        
+        let avgR = UInt8(totalR / pixelCount)
+        let avgG = UInt8(totalG / pixelCount)
+        let avgB = UInt8(totalB / pixelCount)
+        
+        return String(format: "#%02X%02X%02X", avgR, avgG, avgB)
     }
 }

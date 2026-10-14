@@ -12,6 +12,10 @@ struct ResultsView: View {
     @State private var selectedLookType: LookType = .look1Balanced
     @State private var selectedCategoryFilter: GarmentCategory? = nil
     
+    init(result: StylingResult) {
+        self.result = result
+    }
+    
     var currentLook: FitLook? {
         result.looks.first { $0.lookType == selectedLookType } ?? result.looks.first
     }

@@ -332,8 +332,18 @@ struct UserStylingProfile: Equatable {
             environment: .smartDefault,
             referenceImagesData: [],
             personalityKeywords: "Sharp, Minimalist, Effortless, Confident",
-            visionStatement: "Authoritative, elongated, and modern chic with structured poise",
+            visionStatement: "Smart Creative",
             weights: .balanced
         )
     }
 }
+
+// MARK: - Vision & Foundation Model Embedding Extension
+extension UserStylingProfile {
+    /// Extracts on-device vector embeddings, dominant tones, and aesthetic feature prints
+    /// for the user's reference images so they can be processed by Apple Foundation Models.
+    func extractImageEmbeddings() async -> [VisionEmbeddingService.PreferenceImageAnalysis] {
+        return await VisionEmbeddingService.shared.analyzePreferenceImages(imageDatas: referenceImagesData)
+    }
+}
+

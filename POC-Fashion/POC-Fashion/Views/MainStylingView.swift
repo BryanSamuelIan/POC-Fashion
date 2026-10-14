@@ -97,7 +97,6 @@ struct MainStylingView: View {
                 Text(errorMessage ?? "")
             }
             .task {
-                // Only generate if model is available, otherwise allow user to tap button and see explicit status
                 if result == nil, AppleFoundationModelService.shared.isFoundationModelAvailable {
                     result = try? await StylingRecommenderService.shared.generateRecommendations(for: profile)
                 }

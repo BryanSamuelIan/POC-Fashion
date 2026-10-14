@@ -82,22 +82,29 @@ final class StylingRecommenderService {
         lookType: LookType,
         visualAnalyses: [VisionEmbeddingService.PreferenceImageAnalysis] = []
     ) -> String {
-        let aestheticTags = visualAnalyses.flatMap { $0.dominantAestheticKeywords }.prefix(6).joined(separator: ", ")
+        let aestheticTags = visualAnalyses.flatMap { $0.dominantAestheticKeywords }.prefix(4).joined(separator: ", ")
         let tagDescription = aestheticTags.isEmpty ? "Tailored Drape, Minimalist Structure" : aestheticTags
+        let embeddingsContext = VisionEmbeddingService.shared.formatEmbeddingsForPrompt(analyses: visualAnalyses)
         
         let focusDirective: String
         let weightsNote: String
         switch lookType {
         case .look1Balanced:
-            focusDirective = "Look 1: Optimal Balance — Prioritize natural golden-ratio equilibrium between the \(profile.bodyType.rawValue) frame and \(profile.torsoType.rawValue) for refined occasion poise."
-            weightsNote = "Balanced Weights: 40% Body Balance, 30% Occasion, 20% Vision, 10% Color Season"
+            focusDirective = "Look 1: Optimal Balance — Golden-ratio equilibrium for \(profile.bodyType.rawValue) and \(profile.torsoType.rawValue), harmonizing vision (\"\(profile.visionStatement)\") and personality (\"\(profile.personalityKeywords)\")."
+            weightsNote = "Balanced Weights: 35% Body Balance, 25% Occasion, 15% Vision, 15% Personality, 10% Color Season"
         case .look2Vision:
-            focusDirective = "Look 2: Vision-Focused — Prioritize user's aspirational vision: \"\(profile.visionStatement)\" with commanding, architectural vertical tailoring."
-            weightsNote = "Vision-Dominated Weights: 60% Vision, 20% Occasion, 20% Body Balance"
+            focusDirective = "Look 2: Vision-Focused — Prioritize aspirational vision (\"\(profile.visionStatement)\") and personality (\"\(profile.personalityKeywords)\") with architectural tailoring."
+            weightsNote = "Vision-Dominated Weights: 50% Vision, 20% Personality, 15% Occasion, 15% Body Balance"
         case .look3Preference:
-            focusDirective = "Look 3: Preference-Focused — Prioritize moodboard references (aesthetic tags: [\(tagDescription)]), dynamic textures, and expressive seasonal drape."
-            weightsNote = "Preference-Dominated Weights: 50% Moodboard & Preferences, 30% Body Balance, 20% Vision"
+            focusDirective = "Look 3: Preference-Focused — Prioritize moodboard references (aesthetic tags: [\(tagDescription)]), personality vibes, and expressive drape."
+            weightsNote = "Preference-Dominated Weights: 40% Moodboard & Preferences, 25% Personality, 20% Body Balance, 15% Vision"
         }
+        
+        let embeddingsSection = embeddingsContext.isEmpty ? "" : """
+        
+        [EMBEDDED MOODBOARD VISION EMBEDDINGS]
+        \(embeddingsContext)
+        """
         
         return """
         Design a bespoke fashion outfit for this client:
@@ -106,14 +113,15 @@ final class StylingRecommenderService {
         - Color Season: \(profile.colorSeason.rawValue) (Signature Palette: \(profile.colorSeason.signatureHexColors.joined(separator: ", ")))
         - Occasion: "\(profile.occasionName)" (Dress Code: \(profile.dressCode), Activity: \(profile.occasionActivity.rawValue))
         - Style Vision: "\(profile.visionStatement)"
-        - Reference Images: \(profile.referenceImagesData.count) moodboard images attached (Visual aesthetic tags: [\(tagDescription)])
+        - Personality Keywords: "\(profile.personalityKeywords)"
+        - Reference Images: \(profile.referenceImagesData.count) moodboard images attached (Visual aesthetic tags: [\(tagDescription)])\(embeddingsSection)
         
         [STYLING FOCUS - \(weightsNote)]
         \(focusDirective)
         
         [REQUIREMENTS]
         1. Design the 3 essential garments only: Top, Outer, Bottom (strictly NO shoes and NO accessories).
-           For each garment, specify: name, cutDetail, fabricMaterial, colorName, colorHex, fitScore (1-10), and rationale explaining why it flatters the \(profile.bodyType.rawValue) and \(profile.torsoType.rawValue).
+           For each piece specify: name, cutDetail, fabricMaterial, colorName, colorHex, fitScore (1-10), and rationale for \(profile.bodyType.rawValue) and \(profile.torsoType.rawValue).
         2. Write a comprehensive analytical paragraph explaining the correlation of the user's Body Type (\(profile.bodyType.rawValue)), Torso Type (\(profile.torsoType.rawValue)), and Color Season (\(profile.colorSeason.rawValue)) with the overall look.
         """
     }

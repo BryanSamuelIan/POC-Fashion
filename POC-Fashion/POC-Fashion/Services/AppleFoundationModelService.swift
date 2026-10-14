@@ -164,9 +164,42 @@ final class AppleFoundationModelService {
     static let shared = AppleFoundationModelService()
     private init() {}
     
-    /// Checks whether Apple's on-device SystemLanguageModel is available on this device
+    public enum ComputeTarget: String, Sendable {
+        case privateCloudCompute = "Private Cloud Compute (Expanded Context Window & Deep Reasoning)"
+        case onDeviceSystemLanguageModel = "On-Device Apple Neural Engine (SystemLanguageModel)"
+    }
+    
+    /// Returns the active compute target: Apple's Private Cloud Compute if available and within quota, or on-device SystemLanguageModel.
+    var activeComputeTarget: ComputeTarget {
+        #if canImport(FoundationModels)
+        if #available(iOS 27.0, macOS 27.0, *) {
+            let pcc = PrivateCloudComputeLanguageModel()
+            if pcc.isAvailable && !pcc.quotaUsage.isLimitReached {
+                return .privateCloudCompute
+            }
+        }
+        #endif
+        return .onDeviceSystemLanguageModel
+    }
+    
+    /// Checks whether Apple's Private Cloud Compute is available on this device/environment
+    var isPrivateCloudComputeAvailable: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 27.0, macOS 27.0, *) {
+            return PrivateCloudComputeLanguageModel().isAvailable
+        }
+        #endif
+        return false
+    }
+    
+    /// Checks whether Apple's Foundation Models (Private Cloud Compute or on-device SystemLanguageModel) are available
     var isFoundationModelAvailable: Bool {
         #if canImport(FoundationModels)
+        if #available(iOS 27.0, macOS 27.0, *) {
+            if PrivateCloudComputeLanguageModel().isAvailable {
+                return true
+            }
+        }
         if #available(iOS 26.0, *) {
             return SystemLanguageModel().isAvailable
         }
@@ -174,15 +207,46 @@ final class AppleFoundationModelService {
         return false
     }
     
+    /// Creates an optimized Foundation Model session connecting to Apple's Private Cloud Compute
+    /// whenever available for larger context window capacity and deeper reasoning, falling back to on-device.
+    @available(iOS 26.0, macOS 26.0, *)
+    func createSession() -> LanguageModelSession {
+        #if canImport(FoundationModels)
+        if #available(iOS 27.0, macOS 27.0, *) {
+            let pcc = PrivateCloudComputeLanguageModel()
+            if pcc.isAvailable && !pcc.quotaUsage.isLimitReached {
+                print("[AppleFoundationModelService] Connected to Apple Private Cloud Compute (PCC) — Expanded Context Window active")
+                return LanguageModelSession(model: pcc)
+            }
+        }
+        #endif
+        print("[AppleFoundationModelService] Connected to on-device SystemLanguageModel")
+        return LanguageModelSession()
+    }
+    
     /// Analyzes an individual garment using Apple's FoundationModels @Generable ClothingAnalysis
     func analyzeClothingPiece(description: String) async throws -> ClothingAnalysis {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, *) {
-            guard SystemLanguageModel().isAvailable else {
+            guard isFoundationModelAvailable else {
                 throw FoundationModelError.modelNotAvailable
             }
             do {
-                let session = LanguageModelSession()
+                let session = createSession()
+                #if canImport(FoundationModels)
+                if #available(iOS 27.0, macOS 27.0, *) {
+                    let contextOptions = ContextOptions(includeSchemaInPrompt: true, reasoningLevel: .deep)
+                    let result = try await session.respond(
+                        to: "Analyze \(description).",
+                        generating: ClothingAnalysis.self,
+                        contextOptions: contextOptions
+                    )
+                    let analysis = result.content
+                    print("[AppleFoundationModelService] Analyzed Piece: \(analysis.category) | FitScore: \(analysis.fitScore)/10 | \(analysis.explanation)")
+                    return analysis
+                }
+                #endif
+                
                 let result = try await session.respond(
                     to: "Analyze \(description).",
                     generating: ClothingAnalysis.self
@@ -200,38 +264,54 @@ final class AppleFoundationModelService {
     }
     
     /// Generates a single look with 3 garments (Top, Outer, Bottom) and correlation paragraph using Apple's FoundationModels @Generable LookRecommendationItem.
-    /// Highly token-efficient and guaranteed to remain safely within on-device model context window limits.
+    /// Connects to Private Cloud Compute for expanded context capacity and deep reasoning when available.
     func generateSingleLook(prompt: String, imageDatas: [Data] = []) async throws -> LookRecommendationItem {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, *) {
-            guard SystemLanguageModel().isAvailable else {
+            guard isFoundationModelAvailable else {
                 throw FoundationModelError.modelNotAvailable
             }
             
             do {
-                let session = LanguageModelSession()
+                let session = createSession()
                 
                 #if canImport(FoundationModels)
                 if #available(iOS 27.0, macOS 27.0, *) {
+                    let contextOptions = ContextOptions(
+                        includeSchemaInPrompt: true,
+                        reasoningLevel: .deep
+                    )
                     if !imageDatas.isEmpty {
                         var attachments: [Attachment<ImageAttachmentContent>] = []
-                        for data in imageDatas {
+                        for (idx, data) in imageDatas.enumerated() {
                             if let uiImg = UIImage(data: data), let cgImg = uiImg.cgImage {
-                                attachments.append(Attachment(cgImg))
+                                attachments.append(Attachment(cgImg).label("Reference Image \(idx + 1)"))
                             }
                         }
                         if !attachments.isEmpty {
-                            let multimodalPrompt = Prompt {
-                                attachments
-                                prompt
+                            do {
+                                let multimodalPrompt = Prompt {
+                                    attachments
+                                    prompt
+                                }
+                                let result = try await session.respond(
+                                    to: multimodalPrompt,
+                                    generating: LookRecommendationItem.self,
+                                    contextOptions: contextOptions
+                                )
+                                return result.content
+                            } catch {
+                                print("[AppleFoundationModelService] Multimodal session notice: \(error). Falling back to vision-embedded prompt.")
                             }
-                            let result = try await session.respond(
-                                to: multimodalPrompt,
-                                generating: LookRecommendationItem.self
-                            )
-                            return result.content
                         }
                     }
+                    
+                    let result = try await session.respond(
+                        to: prompt,
+                        generating: LookRecommendationItem.self,
+                        contextOptions: contextOptions
+                    )
+                    return result.content
                 }
                 #endif
                 
@@ -250,39 +330,54 @@ final class AppleFoundationModelService {
     }
     
     /// Generates structured styling recommendations for all 3 looks using Apple's FoundationModels @Generable FullStylingRecommendation,
-    /// accepting prompt string and optional multimodal preference image attachments.
-    /// Strictly throws FoundationModelError or LanguageModelError if model fails or is unavailable.
+    /// accepting prompt string and optional multimodal preference image attachments with expanded Private Cloud Compute context.
     func generateFullStylingWithFoundationModels(prompt: String, imageDatas: [Data] = []) async throws -> FullStylingRecommendation {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, *) {
-            guard SystemLanguageModel().isAvailable else {
+            guard isFoundationModelAvailable else {
                 throw FoundationModelError.modelNotAvailable
             }
             
             do {
-                let session = LanguageModelSession()
+                let session = createSession()
                 
                 #if canImport(FoundationModels)
                 if #available(iOS 27.0, macOS 27.0, *) {
+                    let contextOptions = ContextOptions(
+                        includeSchemaInPrompt: true,
+                        reasoningLevel: .deep
+                    )
                     if !imageDatas.isEmpty {
                         var attachments: [Attachment<ImageAttachmentContent>] = []
-                        for data in imageDatas {
+                        for (idx, data) in imageDatas.enumerated() {
                             if let uiImg = UIImage(data: data), let cgImg = uiImg.cgImage {
-                                attachments.append(Attachment(cgImg))
+                                attachments.append(Attachment(cgImg).label("Reference Image \(idx + 1)"))
                             }
                         }
                         if !attachments.isEmpty {
-                            let multimodalPrompt = Prompt {
-                                attachments
-                                prompt
+                            do {
+                                let multimodalPrompt = Prompt {
+                                    attachments
+                                    prompt
+                                }
+                                let result = try await session.respond(
+                                    to: multimodalPrompt,
+                                    generating: FullStylingRecommendation.self,
+                                    contextOptions: contextOptions
+                                )
+                                return result.content
+                            } catch {
+                                print("[AppleFoundationModelService] Multimodal session notice: \(error). Falling back to vision-embedded prompt.")
                             }
-                            let result = try await session.respond(
-                                to: multimodalPrompt,
-                                generating: FullStylingRecommendation.self
-                            )
-                            return result.content
                         }
                     }
+                    
+                    let result = try await session.respond(
+                        to: prompt,
+                        generating: FullStylingRecommendation.self,
+                        contextOptions: contextOptions
+                    )
+                    return result.content
                 }
                 #endif
                 

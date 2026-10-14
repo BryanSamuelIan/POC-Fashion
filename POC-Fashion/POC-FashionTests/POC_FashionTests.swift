@@ -62,6 +62,7 @@ struct POC_FashionTests {
         #expect(prompt.contains(profile.colorSeason.rawValue))
         #expect(prompt.contains(profile.occasionName))
         #expect(prompt.contains(profile.visionStatement))
+        #expect(prompt.contains(profile.personalityKeywords))
         #expect(prompt.contains("Reference Images"))
         
         // Verify 3 garments requirement present and shoes/accessories explicitly excluded
@@ -203,10 +204,19 @@ struct POC_FashionTests {
     }
 
     @Test func testMultiImagePreferenceListAndOptionAEnvironment() async throws {
-        let profile = StylePresets.invertedTriangleExample
+        var profile = StylePresets.invertedTriangleExample
         
-        // Multi-image preference list verification
-        #expect(profile.referenceImagesData.count >= 2)
+        // Multi-image preference list starts empty (all images are user-inputted)
+        #expect(profile.referenceImagesData.isEmpty)
+        #expect(profile.bodyScanImageData == nil)
+        
+        // Supports user-inputted reference images
+        let dummyPixel = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { ctx in
+            ctx.cgContext.setFillColor(UIColor.red.cgColor)
+            ctx.cgContext.fill(CGRect(x: 0, y: 0, width: 10, height: 10))
+        }.pngData()!
+        profile.referenceImagesData = [dummyPixel, dummyPixel]
+        #expect(profile.referenceImagesData.count == 2)
         
         // Option A Smart Defaults Verification
         #expect(profile.environment.location == .indoor)
@@ -220,6 +230,22 @@ struct POC_FashionTests {
             let model = SystemLanguageModel()
             let available = model.isAvailable
             print(">>> SystemLanguageModel.isAvailable: \(available)")
+        }
+        #endif
+    }
+    
+    @Test func testPrivateCloudComputeConfigurationAndFallback() async throws {
+        #if canImport(FoundationModels)
+        if #available(iOS 27.0, macOS 27.0, *) {
+            let pcc = PrivateCloudComputeLanguageModel()
+            print(">>> PrivateCloudComputeLanguageModel.isAvailable: \(pcc.isAvailable)")
+            print(">>> PrivateCloudCompute availability: \(pcc.availability)")
+            print(">>> Active Compute Target: \(AppleFoundationModelService.shared.activeComputeTarget.rawValue)")
+            #expect(!AppleFoundationModelService.shared.activeComputeTarget.rawValue.isEmpty)
+            
+            // Verify session initialization with PCC or fallback to SystemLanguageModel
+            let session = AppleFoundationModelService.shared.createSession()
+            #expect(session != nil)
         }
         #endif
     }
@@ -360,24 +386,33 @@ struct POC_FashionTests {
     }
     
     @Test func testVisionEmbeddingServiceExtraction() async throws {
-        let profile = StylePresets.invertedTriangleExample
+        var profile = StylePresets.invertedTriangleExample
+        let testImage = UIGraphicsImageRenderer(size: CGSize(width: 50, height: 50)).image { ctx in
+            ctx.cgContext.setFillColor(UIColor.blue.cgColor)
+            ctx.cgContext.fill(CGRect(x: 0, y: 0, width: 50, height: 50))
+        }.pngData()!
+        profile.referenceImagesData = [testImage, testImage]
         #expect(profile.referenceImagesData.count >= 2)
         
-        // 1. Extract on-device Vision feature prints & aesthetic taxonomy
-        let analyses = await VisionEmbeddingService.shared.analyzePreferenceImages(imageDatas: profile.referenceImagesData)
+        // 1. Extract on-device Vision feature prints, dominant colors & aesthetic taxonomy
+        let analyses = await profile.extractImageEmbeddings()
         #expect(analyses.count == profile.referenceImagesData.count)
         
         for analysis in analyses {
             #expect(analysis.elementCount > 0)
             #expect(!analysis.embeddingData.isEmpty)
             #expect(!analysis.visualSummary.isEmpty)
-            print("Extracted Vision Feature Print: \(analysis.elementCount) dims, Summary: \(analysis.visualSummary)")
+            #expect(analysis.dominantColorHex.hasPrefix("#"))
+            print("Extracted Vision Feature Print: \(analysis.elementCount) dims, Tone: \(analysis.dominantColorHex), Summary: \(analysis.visualSummary)")
         }
         
-        // 2. Verify prompt integration contains vision multimodal references
+        // 2. Verify prompt integration contains embedded vision representations
         let promptWithVision = StylingRecommenderService.shared.buildStructuredPrompt(for: profile, visualAnalyses: analyses)
         #expect(promptWithVision.contains("Reference Images"))
         #expect(promptWithVision.contains("Visual aesthetic tags"))
+        #expect(promptWithVision.contains("EMBEDDED MOODBOARD VISION EMBEDDINGS"))
+        #expect(promptWithVision.contains("Reference Image 1: Vector embedded"))
+        #expect(promptWithVision.count < 2000)
     }
 }
 

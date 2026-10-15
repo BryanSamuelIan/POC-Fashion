@@ -2,7 +2,22 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!--
+	=============================================================================
+	PRIVATE CLOUD COMPUTE (PCC) ENTITLEMENT
+	=============================================================================
+	Status: Temporarily commented out until Apple approves your developer request.
+	Request Portal: https://developer.apple.com/contact/request/private-cloud-compute/
+	
+	Once approved by Apple in your developer account:
+	1. Uncomment the key and boolean below.
+	2. In Xcode Target 'POC-Fashion' -> Build Settings -> Search for "Code Signing Entitlements"
+	   and set it to: POC-Fashion/POC-Fashion.entitlements
+	3. In AppleFoundationModelService.swift, uncomment the PCC blocks.
+	
 	<key>com.apple.developer.private-cloud-compute</key>
 	<true/>
+	=============================================================================
+	-->
 </dict>
 </plist>

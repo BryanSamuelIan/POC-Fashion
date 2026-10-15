@@ -24,7 +24,7 @@ final class VisionEmbeddingService {
         init(
             embeddingData: Data,
             elementCount: Int,
-            dominantColorHex: String = "#2E3A23",
+            dominantColorHex: String,
             dominantAestheticKeywords: [String],
             visualSummary: String
         ) {

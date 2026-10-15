@@ -14,12 +14,12 @@ struct StylePresets {
     static var invertedTriangleExample: UserStylingProfile {
         UserStylingProfile(
             bodyScanImageData: nil,
-            age: 28,
-            weight: 56.0,
-            height: 167.0,
-            bodyType: .invertedTriangle,
-            torsoType: .shortTorso,
-            colorSeason: .deepAutumn,
+            age: 24,
+            weight: 50.0,
+            height: 163.0,
+            bodyType: .rectangle,
+            torsoType: .longTorso,
+            colorSeason: .softAutumn,
             measurements: BodyMeasurements(
                 shoulder: 43.5,
                 torsoLength: 38.0,
@@ -35,7 +35,7 @@ struct StylePresets {
             environment: .smartDefault,
             referenceImagesData: [],
             personalityKeywords: "Sharp, Confident, Modern, Sophisticated",
-            visionStatement: "Authoritative, elongated, and modern chic with soft upper poise",
+            visionStatement: "Creative, Smart",
             weights: VariableWeights(
                 visionWeight: 30.0,
                 occasionWeight: 20.0,

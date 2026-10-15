@@ -19,12 +19,12 @@ struct POC_FashionTests {
         let profile = StylePresets.invertedTriangleExample
         
         // 1. Identity & Physical
-        #expect(profile.age == 28)
-        #expect(profile.weight == 56.0)
-        #expect(profile.height == 167.0)
-        #expect(profile.bodyType == .invertedTriangle)
-        #expect(profile.torsoType == .shortTorso)
-        #expect(profile.colorSeason == .deepAutumn)
+        #expect(profile.age == 24)
+        #expect(profile.weight == 50.0)
+        #expect(profile.height == 163.0)
+        #expect(profile.bodyType == .rectangle)
+        #expect(profile.torsoType == .longTorso)
+        #expect(profile.colorSeason == .softAutumn)
         
         // 2. 6 Dedicated Measurements (cm)
         #expect(profile.measurements.shoulder == 43.5)
@@ -42,7 +42,7 @@ struct POC_FashionTests {
         
         // 4. Personal Style, Vision & Reference
         #expect(profile.personalityKeywords.contains("Sharp"))
-        #expect(profile.visionStatement.contains("Authoritative"))
+        #expect(profile.visionStatement.contains("Creative"))
         
         // 5. Weight Matrix normalization
         let norm = profile.weights.normalized
@@ -226,10 +226,12 @@ struct POC_FashionTests {
     
     @Test func testAppleFoundationModelAvailability() async throws {
         #if canImport(FoundationModels)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 27.0, *) {
             let model = SystemLanguageModel()
             let available = model.isAvailable
+            #expect(available)
             print(">>> SystemLanguageModel.isAvailable: \(available)")
+            print(">>> SystemLanguageModel.capabilities: \(model.capabilities)")
         }
         #endif
     }
@@ -237,13 +239,19 @@ struct POC_FashionTests {
     @Test func testPrivateCloudComputeConfigurationAndFallback() async throws {
         #if canImport(FoundationModels)
         if #available(iOS 27.0, macOS 27.0, *) {
-            let pcc = PrivateCloudComputeLanguageModel()
-            print(">>> PrivateCloudComputeLanguageModel.isAvailable: \(pcc.isAvailable)")
-            print(">>> PrivateCloudCompute availability: \(pcc.availability)")
+            /*
+            // --- REACTIVATE ONCE APPLE ACCEPTS YOUR PCC ENTITLEMENT REQUEST ---
+            // let pcc = PrivateCloudComputeLanguageModel()
+            // print(">>> PrivateCloudComputeLanguageModel.isAvailable: \(pcc.isAvailable)")
+            // print(">>> PrivateCloudCompute availability: \(pcc.availability)")
+            // #expect(AppleFoundationModelService.shared.activeComputeTarget == .privateCloudCompute)
+            // -----------------------------------------------------------------
+            */
             print(">>> Active Compute Target: \(AppleFoundationModelService.shared.activeComputeTarget.rawValue)")
             #expect(!AppleFoundationModelService.shared.activeComputeTarget.rawValue.isEmpty)
+            #expect(AppleFoundationModelService.shared.activeComputeTarget == .onDeviceSystemLanguageModel)
             
-            // Verify session initialization with PCC or fallback to SystemLanguageModel
+            // Verify session initialization with on-device SystemLanguageModel
             let session = AppleFoundationModelService.shared.createSession()
             #expect(session != nil)
         }
@@ -252,7 +260,7 @@ struct POC_FashionTests {
     
     @Test func testFoundationModelsGenerableClothingAnalysisSchema() async throws {
         #if canImport(FoundationModels)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 27.0, *) {
             // Verify FoundationModels GenerationSchema is synthesized and serializable
             let analysisSchema = ClothingAnalysis.generationSchema
             let analysisData = try JSONEncoder().encode(analysisSchema)
@@ -286,7 +294,7 @@ struct POC_FashionTests {
     
     @Test func testFoundationModelsAnalyzeClothingPiece() async throws {
         #if canImport(FoundationModels)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 27.0, *) {
             do {
                 let analysis = try await AppleFoundationModelService.shared.analyzeClothingPiece(description: "a loose-fitting white shirt")
                 #expect(!analysis.category.isEmpty)
@@ -302,7 +310,7 @@ struct POC_FashionTests {
     
     @Test func testArchitectureStrictlyFailsWhenFoundationModelUnavailable() async throws {
         #if canImport(FoundationModels)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 27.0, *) {
             let profile = StylePresets.invertedTriangleExample
             if !AppleFoundationModelService.shared.isFoundationModelAvailable {
                 // Proves 100% dependency on Foundation Model: no mock or fake fallback is returned
@@ -322,7 +330,7 @@ struct POC_FashionTests {
     
     @Test func testFoundationModelsFullStylingGenerationToResultConversion() async throws {
         #if canImport(FoundationModels)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 27.0, *) {
             let profile = StylePresets.invertedTriangleExample
             
             let mockTop = GarmentRecommendationItem(

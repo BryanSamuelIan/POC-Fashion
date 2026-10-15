@@ -15,6 +15,7 @@ struct MainStylingView: View {
     @State private var generationStepMessage: String = ""
     @State private var result: StylingResult? = nil
     @State private var errorMessage: String? = nil
+    @State private var generationTask: Task<Void, Never>? = nil
     
     var body: some View {
         NavigationStack {
@@ -95,11 +96,6 @@ struct MainStylingView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
-            }
-            .task {
-                if result == nil, AppleFoundationModelService.shared.isFoundationModelAvailable {
-                    result = try? await StylingRecommenderService.shared.generateRecommendations(for: profile)
-                }
             }
         }
     }
@@ -191,54 +187,64 @@ struct MainStylingView: View {
     
     // MARK: - Generation Pipeline Trigger
     private func startGeneration() {
+        guard !isGenerating else { return }
+        generationTask?.cancel()
+        
         isGenerating = true
         generationStepMessage = "Step 1/4: Ingesting certified physical profile & 6 body measurements..."
         
-        Task {
+        generationTask = Task {
+            defer {
+                Task { @MainActor in
+                    self.isGenerating = false
+                    self.generationTask = nil
+                }
+            }
+            
             // Simulated AI workflow progression for visual feedback
             try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 generationStepMessage = "Step 2/4: Applying dynamic decision weights to occasion & vision goals..."
             }
             
             try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 generationStepMessage = "Step 3/4: Synthesizing 3 garments (Top, Outer, Bottom) with fit rationales..."
             }
             
             try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 generationStepMessage = "Step 4/4: Formulating body shape, torso & color season correlation analysis..."
             }
             
             do {
                 let res = try await StylingRecommenderService.shared.generateRecommendations(for: profile)
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     self.result = res
-                    self.isGenerating = false
                     withAnimation {
                         self.currentTab = 2 // Switch to results tab
                     }
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     self.errorMessage = error.localizedDescription
-                    self.isGenerating = false
                 }
             }
         }
     }
     
     private func loadPreset(_ preset: UserStylingProfile) {
+        generationTask?.cancel()
+        generationTask = nil
+        isGenerating = false
         withAnimation {
             self.profile = preset
-        }
-        Task {
-            if let newResult = try? await StylingRecommenderService.shared.generateRecommendations(for: preset) {
-                await MainActor.run {
-                    self.result = newResult
-                }
-            }
+            self.result = nil
         }
     }
 }

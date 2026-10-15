@@ -37,7 +37,7 @@ final class StylingRecommenderService {
         let visualAnalyses = await VisionEmbeddingService.shared.analyzePreferenceImages(imageDatas: profile.referenceImagesData)
         
         #if canImport(FoundationModels)
-        if #available(iOS 26.0, macOS 26.0, *) {
+        if #available(iOS 27.0, macOS 27.0, *) {
             // Generate Look 1: Optimal Balance (Balanced weights)
             let prompt1 = buildConcisePrompt(for: profile, lookType: .look1Balanced, visualAnalyses: visualAnalyses)
             print("[StylingRecommenderService] Generating Look 1 (Optimal Balance)...")
@@ -47,6 +47,9 @@ final class StylingRecommenderService {
             )
             let look1 = convertLookItem(look1Item, type: .look1Balanced, profile: profile)
             
+            // Inter-generation pacing (600ms) to allow Neural Engine / SystemLanguageModel daemon resources to stabilize
+            try await Task.sleep(nanoseconds: 600_000_000)
+            
             // Generate Look 2: Vision-Focused (Vision-prioritized weights)
             let prompt2 = buildConcisePrompt(for: profile, lookType: .look2Vision, visualAnalyses: visualAnalyses)
             print("[StylingRecommenderService] Generating Look 2 (Vision-Focused)...")
@@ -55,6 +58,9 @@ final class StylingRecommenderService {
                 imageDatas: profile.referenceImagesData
             )
             let look2 = convertLookItem(look2Item, type: .look2Vision, profile: profile)
+            
+            // Inter-generation pacing (600ms) to allow Neural Engine / SystemLanguageModel daemon resources to stabilize
+            try await Task.sleep(nanoseconds: 600_000_000)
             
             // Generate Look 3: Preference-Focused (Preference & Moodboard prioritized weights)
             let prompt3 = buildConcisePrompt(for: profile, lookType: .look3Preference, visualAnalyses: visualAnalyses)
@@ -135,7 +141,7 @@ final class StylingRecommenderService {
     }
     
     #if canImport(FoundationModels)
-    @available(iOS 26.0, macOS 26.0, *)
+    @available(iOS 27.0, macOS 27.0, *)
     func convertFoundationModelOutput(_ output: FullStylingRecommendation, for profile: UserStylingProfile) -> StylingResult {
         let look1 = convertLookItem(output.look1Balanced, type: .look1Balanced, profile: profile)
         let look2 = convertLookItem(output.look2Vision, type: .look2Vision, profile: profile)
@@ -147,7 +153,7 @@ final class StylingRecommenderService {
         )
     }
     
-    @available(iOS 26.0, macOS 26.0, *)
+    @available(iOS 27.0, macOS 27.0, *)
     private func convertLookItem(_ item: LookRecommendationItem, type: LookType, profile: UserStylingProfile) -> FitLook {
         let pieces = [
             convertGarmentItem(item.top, defaultCategory: .top),
@@ -155,27 +161,39 @@ final class StylingRecommenderService {
             convertGarmentItem(item.bottom, defaultCategory: .bottom)
         ]
         
-        let defaultPhysical = PhysicalFitEvaluation(
-            score: 95,
-            easeDetail: "3-5 cm architectural ease engineered for balance",
-            lineDetail: "Vertical column contours",
-            grainDetail: "True on-grain drape fall",
-            setDetail: "Zero horizontal strain or pull folds",
-            balanceDetail: "Front and back equilibrium aligned to posture"
+        // 1. Dynamic Physical Fit: Derived from AI-generated garment fit scores (1-10 -> 100% scale)
+        let avgGarmentScore = Double(item.top.fitScore + item.outer.fitScore + item.bottom.fitScore) / 3.0
+        let dynamicPhysicalScore = min(100, max(60, Int((avgGarmentScore * 10.0).rounded())))
+        
+        let dynamicPhysical = PhysicalFitEvaluation(
+            score: dynamicPhysicalScore,
+            easeDetail: "3-5 cm architectural ease calibrated for \(profile.bodyType.rawValue.lowercased()) and \(profile.torsoType.rawValue.lowercased())",
+            lineDetail: "Vertical column contours balancing shoulder-to-hip ratio",
+            grainDetail: "True on-grain drape fall conforming to stance",
+            setDetail: "Zero horizontal strain folds across thoracic points",
+            balanceDetail: "Front and back equilibrium aligned to \(profile.bodyType.rawValue.lowercased()) posture"
         )
         
-        let defaultVisual = VisualFitEvaluation(
-            score: 96,
-            proportionDetail: "Golden ratio (1:1.6) torso alignment",
-            silhouetteDetail: "Elongated column counterbalancing frame",
-            lineDetail: "Continuous vertical focal paths",
-            balanceDetail: "Equal visual mass distribution",
+        // 2. Dynamic Visual Fit: Proportion harmony & color season execution
+        let visualBonus = (type == .look1Balanced) ? 2 : (type == .look2Vision ? 1 : 0)
+        let dynamicVisualScore = min(100, max(60, dynamicPhysicalScore + visualBonus))
+        
+        let dynamicVisual = VisualFitEvaluation(
+            score: dynamicVisualScore,
+            proportionDetail: "Golden ratio (1:1.6) torso alignment tuned for \(profile.torsoType.rawValue.lowercased())",
+            silhouetteDetail: "Elongated column counterbalancing \(profile.bodyType.rawValue.lowercased()) frame",
+            lineDetail: "Continuous vertical focal paths with tapered anchors",
+            balanceDetail: "Equal visual mass distribution across top, outer, and bottom",
             harmonyDetail: "Unified \(profile.colorSeason.rawValue) palette execution"
         )
         
-        let defaultFunctional = FunctionalFitEvaluation(
+        // 3. Dynamic Functional Fit: Modulated by occasion duration and activity posture
+        let durationPenalty = profile.occasionDuration > 4.5 ? 4 : 0
+        let dynamicFunctionalScore = min(100, max(60, 96 - durationPenalty))
+        
+        let dynamicFunctional = FunctionalFitEvaluation(
             suitability: .suitable,
-            score: 94,
+            score: dynamicFunctionalScore,
             insulationLevel: "0.65 clo balanced thermal equilibrium",
             moistureManagement: "High-permeability wicking natural fibers",
             mobilityRequirement: "Ergonomic ease aligned to \(profile.occasionActivity.rawValue.lowercased()) posture",
@@ -187,8 +205,11 @@ final class StylingRecommenderService {
             physiologicalComfortExplanation: "Empirically compliant with ASHRAE 55 and de Dear & Brager (2002) thermal comfort limits."
         )
         
-        let defaultSocial = SocialComfortEvaluation(
-            score: 98,
+        // 4. Dynamic Social Comfort: Modulated by dress code formality
+        let dynamicSocialScore = profile.dressCode.isEmpty ? 90 : 96
+        
+        let dynamicSocial = SocialComfortEvaluation(
+            score: dynamicSocialScore,
             dressCodeCompliance: "Fully compliant with '\(profile.dressCode)'",
             formalityRating: "Executive/Formal poise",
             contextConfidence: "Tailored to command quiet presence at \(profile.occasionName)"
@@ -211,14 +232,14 @@ final class StylingRecommenderService {
             pieces: pieces,
             palette: palette,
             weightInfluenceSummary: item.weightInfluenceSummary,
-            physicalFit: defaultPhysical,
-            visualFit: defaultVisual,
-            functionalFit: defaultFunctional,
-            socialComfort: defaultSocial
+            physicalFit: dynamicPhysical,
+            visualFit: dynamicVisual,
+            functionalFit: dynamicFunctional,
+            socialComfort: dynamicSocial
         )
     }
     
-    @available(iOS 26.0, macOS 26.0, *)
+    @available(iOS 27.0, macOS 27.0, *)
     private func convertGarmentItem(_ item: GarmentRecommendationItem, defaultCategory: GarmentCategory) -> GarmentPiece {
         let cat = GarmentCategory(rawValue: item.category) ?? defaultCategory
         return GarmentPiece(
